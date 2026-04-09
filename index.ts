@@ -33,6 +33,7 @@ import {
 	consumeSessionStartGuidance,
 	consumeTurnEndFindings,
 } from "./clients/runtime-context.js";
+import { createFlagResolver, loadProjectConfig, resetProjectConfig } from "./clients/project-config.js";
 import { handleSessionStart } from "./clients/runtime-session.js";
 import { handleToolResult } from "./clients/runtime-tool-result.js";
 import { handleTurnEnd } from "./clients/runtime-turn.js";
@@ -477,9 +478,18 @@ pi.on("session_start", async (event, ctx) => {
 		dbg("session_start fired");
 		updateRuntimeIdentityFromEvent(event);
 
+		// Load project-level config and create merged flag resolver
+		resetProjectConfig();
+		const projectRoot = ctx.cwd ?? process.cwd();
+		const projectConfig = loadProjectConfig(projectRoot);
+		const getFlag = createFlagResolver((name: string) => pi.getFlag(name));
+		if (projectConfig.disable?.length || projectConfig.enable?.length) {
+			dbg(`session_start: project config loaded — disable=[${projectConfig.disable?.join(", ") ?? ""}] enable=[${projectConfig.enable?.join(", ") ?? ""}]`);
+		}
+
 		await handleSessionStart({
 			ctxCwd: ctx.cwd,
-			getFlag: (name: string) => pi.getFlag(name),
+			getFlag,
 			notify: (msg, level) => ctx.ui.notify(msg, level),
 			dbg,
 			log,
@@ -511,7 +521,8 @@ pi.on("session_start", async (event, ctx) => {
 
 pi.on("tool_call", async (event, ctx) => {
 	const toolName = (event as { toolName?: string }).toolName ?? "";
-	if (pi.getFlag("lens-guard") && isGitCommitOrPushAttempt(toolName, event.input)) {
+	const getFlag = createFlagResolver((name: string) => pi.getFlag(name));
+	if (getFlag("lens-guard") && isGitCommitOrPushAttempt(toolName, event.input)) {
 		const guard = evaluateGitGuard(
 			runtime,
 			cacheManager,
@@ -677,9 +688,10 @@ pi.on("tool_call", async (event, ctx) => {
 // biome-ignore lint/suspicious/noExplicitAny: pi.on overload mismatch for tool_result event type
 (pi as any).on("tool_result", async (event: any) => {
 	updateRuntimeIdentityFromEvent(event);
+	const getFlag = createFlagResolver((name: string) => pi.getFlag(name));
 	return handleToolResult({
 		event: event as any,
-		getFlag: (name: string) => pi.getFlag(name),
+		getFlag,
 		dbg,
 		runtime,
 		cacheManager,
@@ -713,9 +725,10 @@ pi.on("turn_start", () => {
 
 pi.on("turn_end", async (_event, ctx) => {
 	try {
+		const getFlag = createFlagResolver((name: string) => pi.getFlag(name));
 		await handleTurnEnd({
 			ctxCwd: ctx.cwd,
-			getFlag: (name: string) => pi.getFlag(name),
+			getFlag,
 			dbg,
 			runtime,
 			cacheManager,

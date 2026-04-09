@@ -64,6 +64,28 @@ pi
 pi --no-lsp
 ```
 
+## Project Configuration
+
+Create `.pi-lens.json` in your project root to configure pi-lens per-project
+without CLI flags:
+
+```json
+{
+  "disable": ["biome", "madge"],
+  "enable": ["eslint-core"]
+}
+```
+
+- `disable` — list of tools to disable (maps to `--no-<name>` flags)
+- `enable` — list of features to enable (maps to `--lens-<name>` flags)
+
+Valid disable values: `biome`, `ast-grep`, `ruff`, `lsp`, `madge`, `shellcheck`,
+`autoformat`, `autofix`, `autofix-biome`, `autofix-ruff`, `tests`, `go`, `rust`.
+
+Valid enable values: `eslint-core`, `lsp`, `guard`, `verbose`, `blocking-only`.
+
+CLI flags always take precedence over project config.
+
 ## Key Commands
 
 - `/lens-booboo` — full quality report for current project state
