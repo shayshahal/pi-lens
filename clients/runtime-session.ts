@@ -158,11 +158,11 @@ export async function handleSessionStart(
 	if (getFlag("lens-lsp") && !getFlag("no-lsp")) {
 		tools.push("LSP Service");
 	}
-	if (biomeClient.isAvailable()) tools.push("Biome");
-	if (astGrepClient.isAvailable()) tools.push("ast-grep");
-	if (ruffClient.isAvailable()) tools.push("Ruff");
+	if (!getFlag("no-biome") && biomeClient.isAvailable()) tools.push("Biome");
+	if (!getFlag("no-ast-grep") && astGrepClient.isAvailable()) tools.push("ast-grep");
+	if (!getFlag("no-ruff") && ruffClient.isAvailable()) tools.push("Ruff");
 	if (knipClient.isAvailable()) tools.push("Knip");
-	if (depChecker.isAvailable()) tools.push("Madge");
+	if (!getFlag("no-madge") && depChecker.isAvailable()) tools.push("Madge");
 	if (jscpdClient.isAvailable()) tools.push("jscpd");
 	if (typeCoverageClient.isAvailable()) tools.push("type-coverage");
 
