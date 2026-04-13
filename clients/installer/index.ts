@@ -467,14 +467,16 @@ async function verifyToolBinary(binPath: string): Promise<boolean> {
 				debugLog(`Verified: ${binPath} (version: ${stdout.trim()})`);
 				resolve(true);
 			} else {
-				console.error(`[auto-install] Verification failed for ${binPath}`);
+				logSessionStart(`auto-install verify failed: ${binPath} (exit=${code ?? "unknown"})`);
+				debugLog(`[auto-install] Verification failed for ${binPath}`);
 				debugLog("Exit code:", code, "stderr:", stderr);
 				resolve(false);
 			}
 		});
 
 		proc.on("error", (err) => {
-			console.error(`[auto-install] Verification failed for ${binPath}`);
+			logSessionStart(`auto-install verify failed: ${binPath} (${err.message})`);
+			debugLog(`[auto-install] Verification failed for ${binPath}`);
 			debugLog("Error:", err.message);
 			resolve(false);
 		});
@@ -564,7 +566,10 @@ async function installNpmTool(
 					debugLog(`Verifying ${binaryName}...`);
 					const isValid = await verifyToolBinary(binPath);
 					if (!isValid) {
-						console.error(
+						logSessionStart(
+							`auto-install ${packageName}: installed but verification failed (binary may be corrupted)`,
+						);
+						debugLog(
 							`[auto-install] ${packageName} installed but verification failed (binary may be corrupted)`,
 						);
 						// Clean up the broken installation
@@ -596,7 +601,10 @@ async function installNpmTool(
 			proc.on("error", (err) => reject(err));
 		});
 	} catch (err) {
-		console.error(
+		logSessionStart(
+			`auto-install ${packageName}: install failed ${(err as Error).message}`,
+		);
+		debugLog(
 			`[auto-install] Failed to install ${packageName}: ${(err as Error).message}`,
 		);
 		debugLog("Full error:", err);
@@ -726,7 +734,10 @@ async function installPipTool(
 			`Failed to install ${packageName}: no usable pip command found (${lastError || "unknown error"})`,
 		);
 	} catch (err) {
-		console.error(
+		logSessionStart(
+			`auto-install ${packageName}: install failed ${(err as Error).message}`,
+		);
+		debugLog(
 			`[auto-install] Failed to install ${packageName}: ${(err as Error).message}`,
 		);
 		debugLog("Full error:", err);
@@ -740,12 +751,13 @@ async function installPipTool(
 export async function installTool(toolId: string): Promise<boolean> {
 	const tool = TOOLS.find((t) => t.id === toolId);
 	if (!tool) {
-		console.error(`[auto-install] Unknown tool: ${toolId}`);
 		logSessionStart(`auto-install ${toolId}: unknown tool id`);
+		debugLog(`[auto-install] Unknown tool: ${toolId}`);
 		return false;
 	}
 
-	console.error(`[auto-install] Installing ${tool.name}...`);
+	logSessionStart(`auto-install ${tool.id}: installing ${tool.name}`);
+	debugLog(`[auto-install] Installing ${tool.name}...`);
 	const startedAt = Date.now();
 	logSessionStart(
 		`auto-install ${tool.id}: start strategy=${tool.installStrategy} package=${tool.packageName ?? "n/a"}`,
@@ -774,18 +786,18 @@ export async function installTool(toolId: string): Promise<boolean> {
 			}
 
 			default:
-				console.error(
+				logSessionStart(`auto-install ${tool.id}: unsupported strategy ${tool.installStrategy}`);
+				debugLog(
 					`[auto-install] Unsupported strategy: ${tool.installStrategy}`,
 				);
-				logSessionStart(`auto-install ${tool.id}: unsupported strategy`);
 				return false;
 		}
 	} catch (err) {
-		console.error(
-			`[auto-install] Failed to install ${tool.name}: ${(err as Error).message}`,
-		);
 		logSessionStart(
 			`auto-install ${tool.id}: exception ${(err as Error).message} (${Date.now() - startedAt}ms)`,
+		);
+		debugLog(
+			`[auto-install] Failed to install ${tool.name}: ${(err as Error).message}`,
 		);
 		debugLog("Full error:", err);
 		return false;
