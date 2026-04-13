@@ -262,7 +262,9 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Enable LSP (Language Server Protocol) for semantic analysis (Phase 3)",
 		type: "boolean",
-		default: true,
+		// Default OFF to avoid stderr noise/glitches in custom footer/editor UIs.
+		// Enable explicitly per project when needed.
+		default: false,
 	});
 
 	pi.registerFlag("auto-install", {
