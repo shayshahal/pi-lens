@@ -67,6 +67,24 @@ function logSessionStart(msg: string): void {
 		});
 }
 
+const installNoticeQueue: string[] = [];
+const MAX_INSTALL_NOTICES = 20;
+
+function queueInstallNotice(message: string): void {
+	const normalized = message.trim();
+	if (!normalized) return;
+	if (installNoticeQueue[installNoticeQueue.length - 1] === normalized) return;
+	installNoticeQueue.push(normalized);
+	if (installNoticeQueue.length > MAX_INSTALL_NOTICES) {
+		installNoticeQueue.shift();
+	}
+}
+
+export function consumeInstallNotices(): string[] {
+	if (installNoticeQueue.length === 0) return [];
+	return installNoticeQueue.splice(0, installNoticeQueue.length);
+}
+
 // --- Tool Definitions ---
 
 interface ToolDefinition {
@@ -601,12 +619,10 @@ async function installNpmTool(
 			proc.on("error", (err) => reject(err));
 		});
 	} catch (err) {
-		logSessionStart(
-			`auto-install ${packageName}: install failed ${(err as Error).message}`,
-		);
-		debugLog(
-			`[auto-install] Failed to install ${packageName}: ${(err as Error).message}`,
-		);
+		const errorMessage = (err as Error).message;
+		logSessionStart(`auto-install ${packageName}: install failed ${errorMessage}`);
+		queueInstallNotice(`auto-install failed for ${packageName}: ${errorMessage}`);
+		debugLog(`auto-install failed for ${packageName}: ${errorMessage}`);
 		debugLog("Full error:", err);
 		return undefined;
 	}
@@ -734,12 +750,10 @@ async function installPipTool(
 			`Failed to install ${packageName}: no usable pip command found (${lastError || "unknown error"})`,
 		);
 	} catch (err) {
-		logSessionStart(
-			`auto-install ${packageName}: install failed ${(err as Error).message}`,
-		);
-		debugLog(
-			`[auto-install] Failed to install ${packageName}: ${(err as Error).message}`,
-		);
+		const errorMessage = (err as Error).message;
+		logSessionStart(`auto-install ${packageName}: install failed ${errorMessage}`);
+		queueInstallNotice(`auto-install failed for ${packageName}: ${errorMessage}`);
+		debugLog(`auto-install failed for ${packageName}: ${errorMessage}`);
 		debugLog("Full error:", err);
 		return undefined;
 	}
@@ -752,6 +766,7 @@ export async function installTool(toolId: string): Promise<boolean> {
 	const tool = TOOLS.find((t) => t.id === toolId);
 	if (!tool) {
 		logSessionStart(`auto-install ${toolId}: unknown tool id`);
+		queueInstallNotice(`auto-install error: unknown tool "${toolId}"`);
 		debugLog(`[auto-install] Unknown tool: ${toolId}`);
 		return false;
 	}
@@ -787,18 +802,21 @@ export async function installTool(toolId: string): Promise<boolean> {
 
 			default:
 				logSessionStart(`auto-install ${tool.id}: unsupported strategy ${tool.installStrategy}`);
+				queueInstallNotice(
+					`auto-install error for ${tool.name}: unsupported strategy ${tool.installStrategy}`,
+				);
 				debugLog(
 					`[auto-install] Unsupported strategy: ${tool.installStrategy}`,
 				);
 				return false;
 		}
 	} catch (err) {
+		const errorMessage = (err as Error).message;
 		logSessionStart(
-			`auto-install ${tool.id}: exception ${(err as Error).message} (${Date.now() - startedAt}ms)`,
+			`auto-install ${tool.id}: exception ${errorMessage} (${Date.now() - startedAt}ms)`,
 		);
-		debugLog(
-			`[auto-install] Failed to install ${tool.name}: ${(err as Error).message}`,
-		);
+		queueInstallNotice(`auto-install failed for ${tool.name}: ${errorMessage}`);
+		debugLog(`auto-install failed for ${tool.name}: ${errorMessage}`);
 		debugLog("Full error:", err);
 		return false;
 	}

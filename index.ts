@@ -20,7 +20,7 @@ import { extractFunctions } from "./clients/dispatch/runners/similarity.js";
 import { resetFormatService } from "./clients/format-service.js";
 import { evaluateGitGuard, isGitCommitOrPushAttempt } from "./clients/git-guard.js";
 import { GoClient } from "./clients/go-client.js";
-import { ensureTool } from "./clients/installer/index.js";
+import { consumeInstallNotices, ensureTool } from "./clients/installer/index.js";
 import { JscpdClient } from "./clients/jscpd-client.js";
 import { KnipClient } from "./clients/knip-client.js";
 import { getLSPService, resetLSPService } from "./clients/lsp/index.js";
@@ -72,9 +72,72 @@ function dbg(msg: string) {
 
 let _verbose = false;
 const runtime = new RuntimeCoordinator();
+let installNoticeText = "";
+let installNoticeExpiresAt = 0;
+let installNoticeTui: { requestRender: () => void } | null = null;
+let installNoticeWidgetRegistered = false;
 
 function log(msg: string) {
 	if (_verbose) console.error(`[pi-lens] ${msg}`);
+}
+
+function truncateNotice(message: string, width: number): string {
+	const safeWidth = Math.max(12, width);
+	if (message.length <= safeWidth) return message;
+	return `${message.slice(0, safeWidth - 1)}…`;
+}
+
+function setupInstallNoticeWidget(ctx: any): void {
+	if (!ctx?.hasUI || installNoticeWidgetRegistered) return;
+	installNoticeWidgetRegistered = true;
+
+	ctx.ui.setWidget(
+		"pi-lens-install-notice",
+		(tui: { requestRender: () => void }) => {
+			installNoticeTui = tui;
+			return {
+				dispose() {
+					if (installNoticeTui === tui) installNoticeTui = null;
+				},
+				invalidate() {},
+				render(width: number): string[] {
+					if (!installNoticeText || Date.now() > installNoticeExpiresAt) return [];
+					const available = Math.max(12, width - 3);
+					return [` ↳ ${truncateNotice(installNoticeText, available)}`];
+				},
+			};
+		},
+		{ placement: "belowEditor" },
+	);
+}
+
+function publishInstallNotices(ctx: any): void {
+	if (!ctx?.hasUI) return;
+	const notices = consumeInstallNotices();
+	if (notices.length === 0) return;
+
+	installNoticeText = notices[notices.length - 1] ?? "";
+	installNoticeExpiresAt = Date.now() + 12_000;
+
+	try {
+		ctx.ui.setStatus("pi-lens-install", `[pi-lens] ${installNoticeText}`);
+	} catch {
+		// ignore
+	}
+
+	installNoticeTui?.requestRender();
+
+	setTimeout(() => {
+		try {
+			ctx.ui.setStatus("pi-lens-install", undefined);
+		} catch {
+			// ignore
+		}
+		if (Date.now() >= installNoticeExpiresAt) {
+			installNoticeText = "";
+			installNoticeTui?.requestRender();
+		}
+	}, 12_000);
 }
 
 function updateRuntimeIdentityFromEvent(event: unknown): void {
@@ -489,6 +552,8 @@ pi.on("session_start", async (event, ctx) => {
 			dbg(`session_start: project config loaded — disable=[${projectConfig.disable?.join(", ") ?? ""}] enable=[${projectConfig.enable?.join(", ") ?? ""}]`);
 		}
 
+		setupInstallNoticeWidget(ctx);
+
 		await handleSessionStart({
 			ctxCwd: ctx.cwd,
 			getFlag,
@@ -515,6 +580,8 @@ pi.on("session_start", async (event, ctx) => {
 			resetDispatchBaselines,
 			resetLSPService,
 		});
+
+		publishInstallNotices(ctx);
 	} catch (sessionErr) {
 		dbg(`session_start crashed: ${sessionErr}`);
 		dbg(`session_start crash stack: ${(sessionErr as Error).stack}`);
@@ -688,10 +755,10 @@ pi.on("tool_call", async (event, ctx) => {
 
 // Real-time feedback on file writes/edits
 // biome-ignore lint/suspicious/noExplicitAny: pi.on overload mismatch for tool_result event type
-(pi as any).on("tool_result", async (event: any) => {
+(pi as any).on("tool_result", async (event: any, ctx: any) => {
 	updateRuntimeIdentityFromEvent(event);
 	const getFlag = createFlagResolver((name: string) => pi.getFlag(name));
-	return handleToolResult({
+	const result = await handleToolResult({
 		event: event as any,
 		getFlag,
 		dbg,
@@ -707,6 +774,8 @@ pi.on("tool_call", async (event, ctx) => {
 		formatBehaviorWarnings: (warnings) =>
 			agentBehaviorClient.formatWarnings(warnings as any),
 	});
+	publishInstallNotices(ctx);
+	return result;
 });
 // --- Inject project rules into system prompt ---
 pi.on("before_agent_start", async (event) => {
@@ -740,6 +809,7 @@ pi.on("turn_end", async (_event, ctx) => {
 			resetLSPService,
 			resetFormatService,
 		});
+		publishInstallNotices(ctx);
 	} catch (turnEndErr) {
 		dbg(`turn_end crashed: ${turnEndErr}`);
 		dbg(`turn_end crash stack: ${(turnEndErr as Error).stack}`);
