@@ -819,18 +819,30 @@ pi.on("turn_end", async (_event, ctx) => {
 // --- Inject turn-end findings into next agent turn ---
 // jscpd, madge, and turn-end delta results are cached at turn_end and consumed here
 // via the context event, which fires before each provider request.
+// IMPORTANT: always preserve event.messages (includes the user's prompt).
 // biome-ignore lint/suspicious/noExplicitAny: pi.on("context") overload has TS resolution bug
-(pi as any).on("context", async (_event: unknown, ctx: { cwd?: string }) => {
+(pi as any).on("context", async (event: { messages?: unknown[] }, ctx: { cwd?: string }) => {
 	try {
+		const existingMessages = Array.isArray(event?.messages) ? event.messages : [];
+		if (existingMessages.length === 0) {
+			// Defensive guard: never inject standalone context messages when no base prompt exists.
+			// Some providers reject requests that effectively contain no user input.
+			dbg("context: skipping injection (no base messages)");
+			return;
+		}
+
 		const cwd = ctx.cwd ?? process.cwd();
 		const turnEndFindings = consumeTurnEndFindings(cacheManager, cwd);
 		const sessionGuidance = consumeSessionStartGuidance(cacheManager, cwd);
-		const messages = [
+		const injectedMessages = [
 			...(sessionGuidance?.messages ?? []),
 			...(turnEndFindings?.messages ?? []),
 		];
-		if (messages.length === 0) return;
-		return { messages };
+		if (injectedMessages.length === 0) return;
+
+		return {
+			messages: [...existingMessages, ...injectedMessages],
+		};
 	} catch (err) {
 		dbg(`context event error: ${err}`);
 	}
